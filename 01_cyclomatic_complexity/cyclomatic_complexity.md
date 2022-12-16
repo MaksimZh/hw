@@ -2,7 +2,6 @@
 
 ## Исходная версия
 Цикломатическая сложность: 11
-
 ```python
 def _calcCoefs(mxL, lj, coefsNum, atol):
     mxSize = mxL[0].shape[0]
@@ -54,16 +53,14 @@ def _calcCoefs(mxL, lj, coefsNum, atol):
     return g
 ```
 
-## Действия
-
-### Списки вместо массивов
+## Списки вместо массивов
 Вычисление величин `ct` и `g` (помечены TODO-комментариями) связано через большое количество избыточных параметров.
 Это вызвано тем, что в функции активно используются многомерные массивы,
 и дополнительные параметры нужны, чтобы знать какую часть массива использовать, а какую нет.
 
 Переход к вложенным спискам позволил избавиться от лишних элементов и необходимости хранить дополнительную информацию.
 
-### Вынос логики в отдельные функции
+## Вынос логики в отдельные функции
 Теперь можно вынести два этапа вычислений в отдельные функции,
 сделав функцию верхнего уровня почти тривиальной.
 
@@ -73,4 +70,107 @@ def _calcCoefs(mxL, lj, coefsNum, atol):
 def _calcCoefs(mxL, lj, atol):
     ct = _calcAllCt(mxL, lj, atol)
     return [_calcG(ctk, atol) for ctk in ct]
+```
+
+
+# Функция со сложными математическими расчётами 2
+
+## Исходная версия
+Цикломатическая сложность: 7
+```python
+def _calcAllCt(mxL, lj, atol):
+    coefsNum = len(mxL)
+    mxSize = mxL[0].shape[0]
+    factor = ArrayPoly([-lj, 1])
+    mxX, mxY, kappa = \
+        _calcSmithN(mxL[0], num=coefsNum, factor=factor, atol=atol)
+    kernelSize = sum(k > 0 for k in kappa[0])
+    jordanChainsLen = kappa[0][-kernelSize:]
+    ct = []
+    for k in range(kernelSize):
+        ctk = []
+        for n in range(coefsNum):
+            if n == 0:
+                beta = [0]
+            else:
+                beta.append(beta[-1] + kappa[n][-1])
+            nDeriv = jordanChainsLen[k] + beta[-1]
+            if n == 0:
+                beta = [0]
+                b = [_ort(mxSize, -1 - kernelSize + k + 1)]
+                mxXt1 = mxX[0]
+            else:
+                mxZ = [trim(factor**(beta[n - 1] - beta[m]) * mxL[n - m](ArrayPoly([m, 1]))) \
+                        for m in range(n)]
+                b = _calcB(mxY[n], mxZ, lj, ctk, nDeriv)
+                mxXt1 = _calcXt1(factor, mxX[n], kappa[n])
+            ctk.append(_calcCt(mxXt1, lj, b, nDeriv))
+            del b
+            del nDeriv
+        ct.append(ctk)
+        del ctk
+    return ct
+```
+
+## Сокращение количества условных операторов
+Вместо проверки `n == 0` внутри двух вложенных циклов
+поменяем порядок циклов и вынесем вычисления для первого шага
+из цикла, а затем - в отдельную функцию.
+
+## Рекурсия вместо цикла
+Избавимся от цикла по `n`, заменив его рекурсивным вызовом.
+
+## Вынос логики в отдельные функции
+Обработка начального шага рекурсии и последующих шагов достаточно сложная,
+поместим их в отдельные функции.
+
+## Новая версия
+Цикломатическая сложность: 2
+```python
+def _calcAllCt(mxL, lj, atol):
+    if len(mxL) == 1:
+        return _calcInitialCt(mxL[0], lj, atol)
+    ct = _calcAllCt(mxL[:-1], lj, atol)
+    return _calcNextCt(mxL, ct, lj, atol)
+```
+
+
+# Функция с сайта www.govnokod.ru
+
+## Исходная версия
+Цикломатическая сложность: 61
+```python
+def foo(a, b, c, d):
+    if a % 2 == 0 and  b % 2 == 0 and c % 2 == 0 and d % 2 == 0:
+        return 'Все числа четные'
+    elif a % 2 != 0 and  b % 2 == 0 and c % 2 == 0 and d % 2 == 0:
+        return 'Все числа четные, кроме числа А'
+    elif a % 2 == 0 and  b % 2 != 0 and c % 2 == 0 and d % 2 == 0:
+        return 'Все числа четные, кроме числа B'
+    elif a % 2 == 0 and  b % 2 == 0 and c % 2 != 0 and d % 2 == 0:
+        return 'Все числа четные, кроме числа C'
+    elif a % 2 == 0 and  b % 2 == 0 and c % 2 == 0 and d % 2 != 0:
+        return 'Все числа четные, кроме числа D'
+    elif a % 2 != 0 and  b % 2 != 0 and c % 2 == 0 and d % 2 == 0:
+        return 'Числа C и D четные, а А и B нет'
+    elif a % 2 != 0 and  b % 2 == 0 and c % 2 != 0 and d % 2 == 0:
+        return 'Числа B и D четные, а А и C нет'
+    elif a % 2 != 0 and  b % 2 == 0 and c % 2 == 0 and d % 2 != 0:
+        return 'Числа B и C четные, а А и D нет'
+    elif a % 2 == 0 and  b % 2 != 0 and c % 2 != 0 and d % 2 == 0:
+        return 'Числа A и D четные, а B и C нет'
+    elif a % 2 == 0 and  b % 2 == 0 and c % 2 != 0 and d % 2 != 0:
+        return 'Числа A и B четные, а C и D нет'
+    elif a % 2 == 0 and  b % 2 != 0 and c % 2 == 0 and d % 2 != 0:
+        return 'Числа A и C четные, а B и D нет'
+    elif a % 2 == 0 and  b % 2 != 0 and c % 2 != 0 and d % 2 != 0:
+        return 'Все числа нечетные, кроме числа А'
+    elif a % 2 != 0 and  b % 2 == 0 and c % 2 != 0 and d % 2 != 0:
+        return 'Все числа нечетные, кроме числа B'
+    elif a % 2 != 0 and  b % 2 != 0 and c % 2 == 0 and d % 2 != 0:
+        return 'Все числа нечетные, кроме числа C'
+    elif a % 2 != 0 and  b % 2 != 0 and c % 2 != 0 and d % 2 == 0:
+        return 'Все числа нечетные, кроме числа D'
+    else:
+        return 'Все числа нечетные'
 ```
