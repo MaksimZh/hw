@@ -174,3 +174,45 @@ def foo(a, b, c, d):
     else:
         return 'Все числа нечетные'
 ```
+
+## Избавляемся от лишних логических выражений и условий
+Все возвращаемые значения можно разделить на 4 группы.
+
+Цикломатическая сложность: 7
+```python
+def foo(a, b, c, d):
+    odd_numbers = []
+    even_numbers = []
+    for name, value in zip(["A", "B", "C", "D"], [a, b, c, d]):
+        (even_numbers if value % 2 == 0 else odd_numbers).append(name)
+    if len(odd_numbers) == 0:
+        return 'Все числа четные'
+    elif len(odd_numbers) == 1:
+        return f'Все числа четные, кроме числа {odd_numbers[0]}'
+    elif len(odd_numbers) == 2:
+        return f'Числа {even_numbers[0]} и {even_numbers[1]} четные, а {odd_numbers[0]} и {odd_numbers[1]} нет'
+    elif len(odd_numbers) == 3:
+        return f'Все числа нечетные, кроме числа {even_numbers[0]}'
+    else:
+        return 'Все числа нечетные'
+```
+
+## Используем список функций вместо условий
+Размер списка нечётных чисел - индекс в списке генераторов результата.
+
+Цикломатическая сложность: 3
+```python
+def foo(a, b, c, d):
+    odd_names = []
+    even_names = []
+    for name, value in zip(["A", "B", "C", "D"], [a, b, c, d]):
+        (even_names if value % 2 == 0 else odd_names).append(name)
+    answer_generators = [
+        lambda odd, even: 'Все числа четные',
+        lambda odd, even: f'Все числа четные, кроме числа {odd[0]}',
+        lambda odd, even: f'Числа {even[0]} и {even[1]} четные, а {odd[0]} и {odd[1]} нет',
+        lambda odd, even: f'Все числа нечетные, кроме числа {even_names[0]}',
+        lambda odd, even: 'Все числа нечетные',
+    ]
+    return answer_generators[len(odd_names)](odd_names, even_names)
+```
