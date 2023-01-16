@@ -89,73 +89,60 @@ graph TD
 При этом в данной программе меняются параметры `x` и `energy`,
 но в других программах меняются другие параметры.
 
-Здесь сразу хочется выделить компонент `Solver`,
-который вычисляет `localization_rate` если все параметры заданы.
-Внутри него будут компоненты, которые проводят промежуточные расчёты
+Здесь сразу хочется выделить компонент `LocalizationSolver`,
+который вычисляет результат(ы) если все входные параметры заданы.
+Внутри него будут такие же компоненты, которые проводят промежуточные расчёты
 аналогичным образом.
 ```mermaid
 classDiagram
-    Solver *-- HamiltonianBuilder
-    Solver *-- SchrodingerEquationSolver
+    LocalizationSolver *-- HamiltonianBuilder
+    LocalizationSolver *-- SchrodingerEquationSolver
     HamiltonianBuilder *-- MaterialBuilder
     HamiltonianBuilder *-- BulkHamiltonianBuilder
     HamiltonianBuilder *-- ImpurityHamiltonianBuilder
     SchrodingerEquationSolver *-- RadialEquationBuilder
     SchrodingerEquationSolver *-- RadialEquationSolver
-    class Solver {
-        +set_x(float)
-        +set_temperature(float)
-        +set_angular_params(AngularParams)
-        +set_impurity_params(ImpurityParams)
-        +set_energy(float)
-        +set_radial_mesh(RadialMesh)
-        +calculate()
-        +get_localization_rate(): float
-    }
-    class HamiltonianBuilder {
-        +set_x(float)
-        +set_temperature(float)
-        +set_angular_params(AngularParams)
-        +set_impurity_params(ImpurityParams)
-        +calculate()
-        +get_hamiltonian(): RadialHamiltonian
-    }
-    class SchrodingerEquationSolver {
-        +set_hamiltonian(RadialHamiltonian)
-        +set_energy(float)
-        +set_radial_mesh(RadialMesh)
-        +calculate()
-        +get_localization_rate(): float
-    }
-    class MaterialBuilder {
-        +set_x(float)
-        +set_temperature(float)
-        +calculate()
-        +get_material(): Material
-    }
-    class BulkHamiltonianBuilder {
-        +set_material(AngularParams)
-        +set_angular_params(AngularParams)
-        +calculate()
-        +get_hamiltonian(): RadialBulkHamiltonian
-    }
-    class ImpurityHamiltonianBuilder {
-        +set_bulk_hamiltonian(RadialBulkHamiltonian)
-        +set_impurity_params(ImpurityParams)
-        +calculate()
-        +get_hamiltonian(): RadialHamiltonian
-    }
-    class RadialEquationBuilder {
-        +set_hamiltonian(RadialHamiltonian)
-        +set_energy(float)
-        +calculate()
-        +get_equation(): RadialEquation
-    }
-    class RadialEquationSolver {
-        +set_equation(RadialEquation)
-        +set_radial_mesh(RadialMesh)
-        +calculate()
-        +get_localization_rate(): float
-    }
+    class LocalizationSolver
+    class HamiltonianBuilder
+    class SchrodingerEquationSolver
+    class MaterialBuilder
+    class BulkHamiltonianBuilder
+    class ImpurityHamiltonianBuilder
+    class RadialEquationBuilder
+    class RadialEquationSolver
 ```
 Компоненты нижнего уровня будут полезны и в других расчётных программах.
+
+Все эти компоненты имеют общее поведение:
+- расчёт возможен только когда все входные данные есть
+- получить результат можно только если расчёт удался и не устарел.
+
+За это будет отвечать отдельный компонент `Solver`.
+```mermaid
+classDiagram
+    Solver <|-- LocalizationSolver
+    Solver <|-- HamiltonianBuilder
+    Solver <|-- SchrodingerEquationSolver
+    Solver <|-- MaterialBuilder
+    Solver <|-- BulkHamiltonianBuilder
+    Solver <|-- ImpurityHamiltonianBuilder
+    Solver <|-- RadialEquationBuilder
+    Solver <|-- RadialEquationSolver
+    class Solver {
+        <<abstract>>
+        +set_input(name: str, value: Any)
+        +run()
+        +get_run_status(): RunStatus
+        +get_output(name: str): Any
+        +get_get_output_status(): GetOutputStatus
+        #calculate()*
+    }
+    class LocalizationSolver
+    class HamiltonianBuilder
+    class SchrodingerEquationSolver
+    class MaterialBuilder
+    class BulkHamiltonianBuilder
+    class ImpurityHamiltonianBuilder
+    class RadialEquationBuilder
+    class RadialEquationSolver
+```
