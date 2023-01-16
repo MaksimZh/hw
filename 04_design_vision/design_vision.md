@@ -62,27 +62,100 @@ for x in np.linspace(0, X_MAX, int(X_MAX / X_STEP + 0.1) + 1):
 ...
 ```
 
-Этот код вычисляет **спектры** (зависимость **степени локализации** от **энергии**)
-для разных **материалов** (которые различаются параметром `x`).
+Этот код выполняет математические расчёты по следующей схеме:
+```mermaid
+graph TD
+    x(x) --> mm(make_material)
+    t(temperature) --> mm
+    mm --> mat(material) 
+    mat --> cbrh(calc_bulk_radial_hamiltonian)
+    ang(angular_params) --> cbrh
+    cbrh --> brh(bulk_radial_hamiltonian)
+    brh --> crh(calc_radial_hamiltonian)
+    imp(impurity_params) --> crh
+    crh --> rh(radial_hamiltonian)
+    rh --> meq(make_equation)
+    en(energy) --> meq
+    meq --> eq(radial_equation)
+    eq --> solve(solve)
+    rad(radial_mesh) --> solve
+    solve --> lr(localization_rate)
 
-**Набор энергий**, для которых нужны расчёты задаётся на входе.
+    classDef data fill:#afa, stroke:#000
+    classDef proc fill:#faa, stroke:#000
+    class x,t,mat,imp,ang,brh,rh,en,eq,rad,wf,lr data
+    class mm,cbrh,crh,meq,solve proc
+```
+При этом в данной программе меняются параметры `x` и `energy`,
+но в других программах меняются другие параметры.
 
-Материал, **угловые параметры** (j, l), **параметры примеси** (z, z1, l1) и **температура** (t)
-определяют **модель** для расчёта.
-
-Результат записывается в **хранилище спектров**.
-
-Если в хранилище уже есть спектр для данной модели,
-то при необходимости он дополняется значениями для недостающих энергий.
-
-Для каждого материала проводится предварительный расчёт **гамильтониана**,
-общий для всех значений энергии.
-
-Чтобы ждать результата было не скучно, на экран выводится данные о
-**прогрессе** расчёта.
-
-Слова выделенные жирным шрифтом - это компоненты логики программы.
-Причём некоторые из них (например материал и гамильтониан) имеют большие перспективы
-применения и в других моих расчётных программах.
-
-Хорошо бы выделить их в коде явно.
+Здесь сразу хочется выделить компонент `Solver`,
+который вычисляет `localization_rate` если все параметры заданы.
+Внутри него будут компоненты, которые проводят промежуточные расчёты
+аналогичным образом.
+```mermaid
+classDiagram
+    Solver *-- HamiltonianBuilder
+    Solver *-- SchrodingerEquationSolver
+    HamiltonianBuilder *-- MaterialBuilder
+    HamiltonianBuilder *-- BulkHamiltonianBuilder
+    HamiltonianBuilder *-- ImpurityHamiltonianBuilder
+    SchrodingerEquationSolver *-- RadialEquationBuilder
+    SchrodingerEquationSolver *-- RadialEquationSolver
+    class Solver {
+        +set_x(float)
+        +set_temperature(float)
+        +set_angular_params(AngularParams)
+        +set_impurity_params(ImpurityParams)
+        +set_energy(float)
+        +set_radial_mesh(RadialMesh)
+        +calculate()
+        +get_localization_rate(): float
+    }
+    class HamiltonianBuilder {
+        +set_x(float)
+        +set_temperature(float)
+        +set_angular_params(AngularParams)
+        +set_impurity_params(ImpurityParams)
+        +calculate()
+        +get_hamiltonian(): RadialHamiltonian
+    }
+    class SchrodingerEquationSolver {
+        +set_hamiltonian(RadialHamiltonian)
+        +set_energy(float)
+        +set_radial_mesh(RadialMesh)
+        +calculate()
+        +get_localization_rate(): float
+    }
+    class MaterialBuilder {
+        +set_x(float)
+        +set_temperature(float)
+        +calculate()
+        +get_material(): Material
+    }
+    class BulkHamiltonianBuilder {
+        +set_material(AngularParams)
+        +set_angular_params(AngularParams)
+        +calculate()
+        +get_hamiltonian(): RadialBulkHamiltonian
+    }
+    class ImpurityHamiltonianBuilder {
+        +set_bulk_hamiltonian(RadialBulkHamiltonian)
+        +set_impurity_params(ImpurityParams)
+        +calculate()
+        +get_hamiltonian(): RadialHamiltonian
+    }
+    class RadialEquationBuilder {
+        +set_hamiltonian(RadialHamiltonian)
+        +set_energy(float)
+        +calculate()
+        +get_equation(): RadialEquation
+    }
+    class RadialEquationSolver {
+        +set_equation(RadialEquation)
+        +set_radial_mesh(RadialMesh)
+        +calculate()
+        +get_localization_rate(): float
+    }
+```
+Компоненты нижнего уровня будут полезны и в других расчётных программах.
