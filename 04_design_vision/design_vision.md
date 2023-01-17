@@ -65,6 +65,48 @@ for x in np.linspace(0, X_MAX, int(X_MAX / X_STEP + 0.1) + 1):
 Этот код выполняет математические расчёты по следующей схеме:
 ```mermaid
 graph TD
+    x(x) --> clr(calc_localization_rate)
+    t(temperature) --> clr
+    mat --> clr
+    ang(angular_params) --> clr
+    imp(impurity_params) --> clr
+    en(energy) --> clr
+    rad(radial_mesh) --> clr
+    clr --> lr(localization_rate)
+
+    classDef data fill:#afa, stroke:#000
+    classDef proc fill:#faa, stroke:#000
+    class x,t,mat,imp,ang,en,rad,lr data
+    class clr proc
+```
+Более подробно:
+```mermaid
+---
+title: calc_localization_rate
+---
+graph TD
+    x(x) --> ch(calc_hamiltonian)
+    t(temperature) --> ch
+    mat --> ch
+    ang(angular_params) --> ch
+    imp(impurity_params) --> ch
+    ch --> h(hamiltonian)
+    h --> solve(solve_schrodinger_equation)
+    en(energy) --> solve
+    rad(radial_mesh) --> solve
+    solve --> lr(localization_rate)
+
+    classDef data fill:#afa, stroke:#000
+    classDef proc fill:#faa, stroke:#000
+    class x,t,mat,imp,ang,h,en,rad,lr data
+    class ch,solve proc
+```
+Следующий уровень:
+```mermaid
+---
+title: calc_hamiltonian
+---
+graph TD
     x(x) --> mm(make_material)
     t(temperature) --> mm
     mm --> mat(material) 
@@ -73,8 +115,19 @@ graph TD
     cbrh --> brh(bulk_radial_hamiltonian)
     brh --> crh(calc_radial_hamiltonian)
     imp(impurity_params) --> crh
-    crh --> rh(radial_hamiltonian)
-    rh --> meq(make_equation)
+    crh --> h(hamiltonian)
+
+    classDef data fill:#afa, stroke:#000
+    classDef proc fill:#faa, stroke:#000
+    class x,t,mat,imp,ang,brh,h data
+    class mm,cbrh,crh proc
+```
+```mermaid
+---
+title: solve_schrodinger_equation
+---
+graph TD
+    h(hamiltonian) --> meq(make_equation)
     en(energy) --> meq
     meq --> eq(radial_equation)
     eq --> solve(solve)
@@ -83,66 +136,8 @@ graph TD
 
     classDef data fill:#afa, stroke:#000
     classDef proc fill:#faa, stroke:#000
-    class x,t,mat,imp,ang,brh,rh,en,eq,rad,wf,lr data
+    class h,en,eq,rad,wf,lr data
     class mm,cbrh,crh,meq,solve proc
 ```
 При этом в данной программе меняются параметры `x` и `energy`,
 но в других программах меняются другие параметры.
-
-Здесь сразу хочется выделить компонент `LocalizationSolver`,
-который вычисляет результат(ы) если все входные параметры заданы.
-Внутри него будут такие же компоненты, которые проводят промежуточные расчёты
-аналогичным образом.
-```mermaid
-classDiagram
-    LocalizationSolver *-- HamiltonianBuilder
-    LocalizationSolver *-- SchrodingerEquationSolver
-    HamiltonianBuilder *-- MaterialBuilder
-    HamiltonianBuilder *-- BulkHamiltonianBuilder
-    HamiltonianBuilder *-- ImpurityHamiltonianBuilder
-    SchrodingerEquationSolver *-- RadialEquationBuilder
-    SchrodingerEquationSolver *-- RadialEquationSolver
-    class LocalizationSolver
-    class HamiltonianBuilder
-    class SchrodingerEquationSolver
-    class MaterialBuilder
-    class BulkHamiltonianBuilder
-    class ImpurityHamiltonianBuilder
-    class RadialEquationBuilder
-    class RadialEquationSolver
-```
-Компоненты нижнего уровня будут полезны и в других расчётных программах.
-
-Все эти компоненты имеют общее поведение:
-- расчёт возможен только когда все входные данные есть
-- получить результат можно только если расчёт удался и не устарел.
-
-За это будет отвечать отдельный компонент `Solver`.
-```mermaid
-classDiagram
-    Solver <|-- LocalizationSolver
-    Solver <|-- HamiltonianBuilder
-    Solver <|-- SchrodingerEquationSolver
-    Solver <|-- MaterialBuilder
-    Solver <|-- BulkHamiltonianBuilder
-    Solver <|-- ImpurityHamiltonianBuilder
-    Solver <|-- RadialEquationBuilder
-    Solver <|-- RadialEquationSolver
-    class Solver {
-        <<abstract>>
-        +set_input(name: str, value: Any)
-        +run()
-        +get_run_status(): RunStatus
-        +get_output(name: str): Any
-        +get_get_output_status(): GetOutputStatus
-        #calculate()*
-    }
-    class LocalizationSolver
-    class HamiltonianBuilder
-    class SchrodingerEquationSolver
-    class MaterialBuilder
-    class BulkHamiltonianBuilder
-    class ImpurityHamiltonianBuilder
-    class RadialEquationBuilder
-    class RadialEquationSolver
-```
