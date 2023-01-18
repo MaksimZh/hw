@@ -62,27 +62,9 @@ for x in np.linspace(0, X_MAX, int(X_MAX / X_STEP + 0.1) + 1):
 ...
 ```
 
+## Схема расчёта
 Этот код выполняет математические расчёты по следующей схеме:
 ```mermaid
-graph TD
-    x(x) --> clr(calc_localization_rate)
-    t(temperature) --> clr
-    ang(angular_params) --> clr
-    imp(impurity_params) --> clr
-    en(energy) --> clr
-    rad(radial_mesh) --> clr
-    clr --> lr(localization_rate)
-
-    classDef value fill:#afa, stroke:#000
-    classDef proc fill:#ccf, stroke:#000
-    class x,t,imp,ang,en,rad,lr value
-    class clr proc
-```
-Более подробно:
-```mermaid
----
-title: calc_localization_rate
----
 graph TD
     x(x) --> ch(calc_hamiltonian)
     t(temperature) --> ch
@@ -99,7 +81,26 @@ graph TD
     class x,t,imp,ang,h,en,rad,lr value
     class ch,solve proc
 ```
-Можно пойти глубже, но пока хватит.
+Внутри синих блоков схема аналогичная: узлы-значения и узлы-процедуры, например:
+```mermaid
+graph TD
+    x(x) --> bm(build_material)
+    t(temperature) --> bm
+    bm --> mat(material)
+    mat --> cbh(calc_bulk_hamiltonian)
+    cbh --> bh(bulk_hamiltonian)
+    bh --> csh(calc_spherical_hamiltonian)
+    ang(angular_params) --> csh
+    csh --> sh(spherical_hamiltonian)
+    sh --> cih(calc_impurity_hamiltonian)
+    imp(impurity_params) --> cih
+    cih --> h(hamiltonian)
+
+    classDef value fill:#afa, stroke:#000
+    classDef proc fill:#ccf, stroke:#000
+    class x,t,mat,bh,ang,sh,imp,h value
+    class bm,cbh,csh,cih proc
+```
 
 В данной программе меняются параметры `x` и `energy`,
 но в других программах меняются другие параметры.
@@ -108,11 +109,11 @@ graph TD
 которые требуют разной реализации.
 Нужно выделить схему расчёта явно и отделить её от сценария.
 
-Декларативная модель в чистом виде здесь не очень хороша.
-Нужно либо пересчитывать гамильтониан при изменении энергии (что не оптимально),
+Декларативная модель в чистом виде здесь не очень подходит.
+Придётся либо пересчитывать гамильтониан при изменении энергии (что не оптимально),
 либо разбивать схему расчёта с помощью замыканий (тогда сценарий перемешается со схемой).
 
-Нужно добавить к данным (зелёным узлам) состояние:
+Нужно добавить к значениям (зелёным узлам) состояние:
 ```mermaid
 graph TD
     rv(regular value)
@@ -240,192 +241,406 @@ graph TD
     class lr invalid_value
     class ch,solve proc
 ```
-От этого "портится" и `hamiltonian` и `localization_rate`
+От этого "портится" и `hamiltonian` и `localization_rate`,
+и теперь нужно всё пересчитывать.
 
-## Что делать
-Для реализации этой схемы потребуются АТД `ValueNode` и `ProcNode`.
-Тип узла - это не про процедуры и значения (процедурным значением сейчас мало кого удивишь),
-а про поведение в схеме расчёта.
+
+## Реализация схемы расчёта
+Для реализации этой схемы потребуются АТД узел-значение и узел-процедура.
 
 Правила построения схемы расчёта:
-- `ValueNode` может иметь максимум один вход от `ProcNode` и любое количество выходов;
-- `ProcNode` может иметь любое количество входов и выходов;
-- внутри `ProcNode` может быть своя вложенная схема расчёта.
+- процедуры могут соединяться только со значениями, а значения - с процедурами;
+- все соединения имеют строго одно направление;
+- значение может иметь максимум одну входную процедуру и любое количество выходных;
+- процедура может иметь любое количество входных и выходных значений;
 
-Правила работы схемы расчёта:
-- `ValueNode` может быть в одном из трёх состояний: `REGULAR`, `NEW`, `INVALID`;
-- если `ValueNode` переходит в состояние `NEW` или `INVALID`,
-то все зависящие от него `ValueNode` переходят в состояние `INVALID`;
-- попытка прочитать значение из `ValueNode` в состоянии `INVALID` запускает `ProcNode`, от которого он зависит;
-- при запуске `ProcNode` пытается прочитать значения из своих входных узлов;
-- когда все `ProcNode`, зависящие от данного `ValueNode` были запущены,
-он переходит в состояние `REGULAR`;
-- запуск `ProcNode` переводит зависящие от него `ValueNode` в состояние `NEW`;
+Внутри процедуры может быть вложена своя схема расчёта, что позволяет
+легко разбивать задачу на подзадачи.
 
-`ValueNode`
-- конструктор
-    - параметры: тип значения
-        - постусловие: построение не завершено;
-- команды:
-    - привязать входной `ProcNode`;
-        - предусловие: построение не завершено;
-        - предусловие: узел не привязан к данному;
-        - предусловие: нет входных узлов;
-        - постусловие: узел привязан как входной;
-    - привязать выходной `ProcNode`;
-        - предусловие: построение не завершено;
-        - предусловие: узел не привязан к данному;
-        - постусловие: узел привязан как выходной;
-    - завершить построение;
-        - постусловие: построение завершено;
-        - постусловие: состояние равно `INVALID`;
-    - записать значение;
-        - предусловие: построение завершено;
-        - предусловие: допустимый тип значения;
-        - постусловие: если есть выходные узлы - состояние равно `NEW`, иначе `REGULAR`;
-        - постусловие: всем выходам отправлена команда об обновлении состояния входа;
-    - перейти в состояние `INVALID`;
-        - предусловие: построение завершено;
-        - постусловие: состояние равно `INVALID`;
-        - постусловие: если состояние изменилось, всем выходам отправлена команда об обновлении состояния входа;
-    - сообщить что значение использовано в `ProcNode`;
-        - предусловие: построение завершено;
-        - предусловие: `ProcNode` привязан как выход;
-        - предусловие: состояние не `INVALID`;
-        - постусловие: если состояние `NEW`, и все `ProcNode` использовали значение,
-                       состояние становится `REGULAR`;
-    - подготовиться к чтению значения;
-        - предусловие: построение завершено;
-        - предусловие: есть входной `ProcNode` или состояние не `INVALID`;
-        - постусловие: если состояние `INVALID`, входному `ProcNode` отправлена команда пересчитать значение;
-        - постусловие: состояние не `INVALID`;
-- запросы:
-    - получить тип значения;
-    - получить входной `ProcNode`;
-    - получить список выходных `ProcNode`;
-    - получить состояние;
-        - предусловие: построение завершено;
-    - получить значение;
-        - предусловие: построение завершено;
-        - предусловие: состояние не `INVALID`;
+Условие, что значение зависит ровно от одной процедуры позволяет всегда определить
+"ответственного" за его обновление.
 
-`ProcNode`
-- конструктор
-    - параметры: тип процедуры
-        - постусловие: построение не завершено;
-- команды:
-    - привязать входной `ValueNode`;
-        - предусловие: построение не завершено;
-        - предусловие: узел не привязан к данному;
-        - предусловие: имя узла не занято;
-        - постусловие: узел привязан как входной под заданным именем;
-    - привязать выходной `ValueNode`;
-        - предусловие: построение не завершено;
-        - предусловие: узел не привязан к данному;
-        - предусловие: имя узла не занято;
-        - постусловие: узел привязан как выходной под заданным именем;
-    - завершить построение;
-        - постусловие: процедура создана и ей переданы АТД `ProcInput` и `ProcOutput` (см. ниже);
-        - постусловие: построение завершено;
-    - обновить состояние входного значения (не требуется, если меняется на `REGULAR`);
-        - предусловие: построение завершено;
-        - постусловие: всем выходам отправлено сообщение о переходе в состояние `INVALID`;
-    - пересчитать;
-        - предусловие: построение завершено;
-        - постусловие: всем входным `ValueNode` отправлена команда подготовки к чтению;
-        - постусловие: всем входным `ValueNode` отправлено сообщение, что значение использовано;
-        - постусловие: процедура выполнена;
-        - постусловие: всем выходным `ValueNode` отправлена команда записи значения;
-- запросы:
-    - получить словарь входных `ValueNode`;
-    - получить словарь выходных `ValueNode`;
+У узлов есть два основных состояния:
+- построение не завершено
+    - можно привязывать входы и выходы;
+    - нельзя задавать и читать значения;
+    - нельзя запускать процедуры;
+- построение завершено
+    - нельзя привязывать входы и выходы;
+    - можно задавать и читать значения;
+    - можно запускать процедуры;
 
-Процедура - это АТД с конструктором, принимающим АТД `ProcInput` и `ProcOutput`,
-и командой запуска:
-- конструктор:
-    - параметры: `ProcInput` и `ProcOutput`;
-        - постусловие: процедура создана;
-- команды:
-    - запуск;
-        - постусловие: результаты отправлены в `ProcOutput`;
+Значение, для которого построение завершено, может быть в одном из трёх состояний:
+- `INVALID` - значение не задано, или устарело;
+- `NEW` - значение обновлено и ещё учтено не во всех зависящих от него процедурах;
+- `REGULAR` - значение задано и учтено во всех зависящих от него процедурах;
+
+Если значение становится `NEW` или `INVALID`, то все зависящие от него процедуры
+получают команду `invalidate`.
+Затем они транслируют её своим выходным значениями и процесс продолжается,
+пока не будет достигнут конец схемы.
+
+Перед чтением значения нужно вызвать команду `validate`, которая транслируется
+уже в обратном направлении, запуская все нужные процедуры.
+
+После успешного выполнения процедура переводит свои выходные значения
+в состояние `NEW`.
+Когда все выходные процедуры прочитают это значение, оно станет `REGULAR`.
+
+Если для краткости опустить реализацию и статусы,
+то АТД узлов в программе выглядят так:
+```python
+@final
+class ValueNode:
+
+    # CONSTRUCTOR
+    def __init__(self, value_type: type) -> None:
+        ...
+
+    # COMMANDS
+
+    # add input node
+    # PRE: building not complete
+    # PRE: node not linked to this
+    # PRE: this node has no inputs
+    # POST: node linked as input to this
+    def add_input(self, input: "ProcedureNode") -> None:
+        ...
+
+    # add outinput node
+    # PRE: building not complete
+    # PRE: node not linked to this
+    # POST: node linked as output to this
+    def add_output(self, output: "ProcedureNode") -> None:
+        ...
+
+    # complete build
+    # POST: build complete
+    # POST: state is INVALID
+    def complete_build(self) -> None:
+        ...
+
+    # put value
+    # PRE: build complete
+    # PRE: value of proper type
+    # POST: value is set
+    # POST: if there are outputs then state is NEW else REGULAR
+    # POST: all outputs get invalidate command
+    def put(self, value: Any) -> None:
+        ...
+
+    # set state to INVALID
+    # PRE: build complete
+    # POST: state is INVALID
+    # POST: if the state has changed then all outputs get invalidate command
+    def invalidate(self) -> None:
+        ...
+
+    # notify that the value was used by output
+    # PRE: build complete
+    # PRE: output is linked
+    # PRE: not in INVALID state
+    # POST: if state is NEW and all outputs used value then set state to REGULAR
+    def used_by(self, output: "ProcedureNode") -> None:
+        ...
+
+    # ensure that the value is valid
+    # PRE: build complete
+    # PRE: there is input or the state is not INVALID
+    # POST: if the state is INVALID then the input gets run command
+    def validate(self) -> None:
+        ...
 
 
-АТД `ProcInput` и `ProcOutput` - интерфейсы,
-позволяющие получать входные данные и отправлять выходные.
+    # QUERIES
 
-`ProcInput`
-- запросы:
-    - получить словарь входных `ValueNode`;
-    - проверить присутствует ли имя в коллекции;
-    - проверить является ли значение новым;
-        - предусловие: имя значения присутствует в коллекции;
-    - получить тип значения;
-        - предусловие: имя значения присутствует в коллекции;
-    - получить входное значение;
-        - предусловие: имя значения присутствует в коллекции;
+    # get value type
+    def get_type(self) -> type:
+        ...
 
-`ProcOutput`
-- команды:
-    - отправить выходное значение;
-        - предусловие: имя значения присутствует в коллекции;
-        - предусловие: тип значения допустимый;
-        - постусловие: значение отправлено в узел;
-- запросы:
-    - получить словарь выходных `ValueNode`;
-    - проверить присутствует ли имя в коллекции;
-    - получить тип значения;
-        - предусловие: имя значения присутствует в коллекции;
+    # get input node
+    def get_input(self) -> Optional["ProcedureNode"]:
+        ...
 
-Сам узел использует расширенные версии:
+    # get set of output nodes
+    def get_outputs(self) -> set["ProcedureNode"]:
+        ...
 
-`ProcNodeInput` - наследник `ProcInput`
-- конструктор:
-    - без параметров;
-        - постусловие: создана пустая коллекция;
-- команды:
-    - добавить имя и входной узел;
-        - предусловие: узел отсутствует в коллекции;
-        - предусловие: имя отсутствует в коллекции;
-        - постусловие: имя и тип добавлены в коллекцию;
-    - завершить построение;
-        - постусловие: построение завершено;
-- запросы:
-    - проверить входит ли узел в коллекцию;
+    class State(Enum):
+        INVALID = auto(),
+        NEW = auto(),
+        REGULAR = auto(),
 
-`ProcNodeOutput` - наследник `ProcOutput`
-- конструктор:
-    - без параметров;
-        - постусловие: создана пустая коллекция;
-- команды:
-    - добавить имя и выходной узел;
-        - предусловие: построение не завершено;
-        - предусловие: узел отсутствует в коллекции;
-        - предусловие: имя отсутствует в коллекции;
-        - постусловие: имя и узел добавлены в коллекцию;
-    - завершить построение;
-        - постусловие: построение завершено;
-- запросы:
-    - проверить входит ли узел в коллекцию;
-    - проверить полноту выходных значений;
-        - предусловие: построение завершено;
+    # get node state
+    # PRE: build complete
+    def get_state(self) -> State:
+        ...
 
-`Simulator`
-- конструктор:
-    - список узлов с параметрами;
-        - предусловие: имена узлов не повторяются;
-        - предусловие: узлы для входов и выходов всех процедур присутствуют;
-        - предусловие: нет двойных связей;
-        - предусловие: нет множественных входов для значений;
-        - постусловие: узлы связаны и их построение завершено
-- команды:
-    - отправить значение во входной узел;
-        - предусловие: инициализация прошла успешно;
-        - предусловие: узел с таким именем присутствует;
-        - предусловие: узел не имеет входных процедур;
-        - предусловие: подходящий тип значения;
-        - постусловие: значение отправлено в узел;
-- запросы:
-    - получить значение выходного узла;
-        - предусловие: инициализация прошла успешно;
-        - предусловие: узел с таким именем присутствует;
-        - постусловие: значение узла обновлено;
+    # get value
+    # PRE: build complete
+    # PRE: state is not INVALID
+    def get(self) -> Any:
+        ...
+```
+
+```python
+@final
+class ProcedureNode:
+
+    # CONSTRUCTOR
+    def __init__(self, procedure: Procedure) -> None:
+        ...
+
+    # COMMANDS
+
+    # add input node
+    # PRE: building not complete
+    # PRE: node not linked to this
+    # POST: node linked as input to this
+    def add_input(self, name: str, input: ValueNode) -> None:
+        ...
+
+    # add output node
+    # PRE: building not complete
+    # PRE: node not linked to this
+    # POST: node linked as output to this
+    def add_output(self, name: str, output: ValueNode) -> None:
+        ...
+
+    # complete build
+    # POST: procedure initialized
+    # POST: build complete
+    def complete_build(self) -> None:
+        ...
+
+    # signal that input state changed to NEW or INVALID
+    # PRE: build complete
+    # POST: all outputs get invalidate command
+    def invalidate(self) -> None:
+        ...
+
+    # run the procedure
+    # PRE: build complete
+    # PRE: inputs can be validated
+    # PRE: inputs and outputs compatible with the procedure
+    # POST: all inputs have been validated
+    # POST: the procedure have been run
+    # POST: all outputs have been updated
+    def validate(self) -> None:
+        ...
+
+
+    # QUERIES
+
+    # get dictionary of input nodes
+    def get_inputs(self) -> dict[str, "ValueNode"]:
+        ...
+
+    # get dictionary of output nodes
+    def get_outputs(self) -> dict[str, "ValueNode"]:
+        ...
+```
+
+Задача управления схемой расчёта разбита на маленькие подзадачи управления
+отдельными узлами.
+
+Процедура - это абстрактный класс:
+```python
+class Procedure(ABC):
+
+    # COMMANDS
+    
+    # set input value
+    # PRE: name is acceptable
+    # PRE: value type is compatible
+    # POST: input value is set
+    @abstractmethod
+    def put(self, name: str, value: Any) -> None:
+        pass
+
+
+    # QUERIES
+
+    # get value
+    # PRE: name is acceptable
+    # PRE: there is enough data to calculate value
+    @abstractmethod
+    def get(self, name: str) -> Any:
+        pass
+```
+
+Технически, именно запрос `get` меняет внутреннее состояние процедуры,
+запуская вычисления.
+Но с точки зрения логики, состояние изменяется командой `put`,
+а то, что вычисления "ленивые" - это уже детали реализации.
+
+## Декларативное описание схемы расчёта
+Самое вкусное здесь - это АТД и `Simulator`, который является потомком процедуры:
+```python
+ValueLink = Union[str, type]
+ValuePattern = tuple[str, type]
+ProcPattern = tuple[Procedure, dict[str, ValueLink], dict[str, ValueLink]]
+NodePattern = Union[ValuePattern, ProcPattern]
+
+class Simulator(Procedure):
+
+    # CONSTRUCTOR
+    # PRE: patterns have no duplicate names
+    # PRE: all procedure IO names present in value patterns
+    # PRE: no duplicate links
+    # PRE: no multiple value inputs
+    # POST: nodes linked and build complete for all nodes
+    def __init__(self, node_patterns: list[NodePattern]) -> None:
+        ...
+
+    # COMMANDS
+
+    @final
+    def put(self, name: str, value: Any) -> None:
+        ...
+
+    # QUERIES
+
+    @final
+    def get(self, name: str) -> Any:
+        ...
+```
+
+Данный АТД берёт на себя построение схемы расчёта на основе входных
+данных конструктора:
+```python
+simulator = Simulator([
+    ("value_name_1", Type1),
+    ("value_name_2", Type2),
+    (procedure,
+        {"input_1": "value_name_1", "input_2": "value_name_1"},
+        {"output_1": "value_name_3", "output_2": "value_name_4"}),
+    ("value_name_3", Type3),
+    ("value_name_4", Type4),
+])
+```
+```mermaid
+graph TD
+    v1(value_name_1) --> p(procedure)
+    v2(value_name_1) --> p
+    p --> v3(value_name_3)
+    p --> v4(value_name_4)
+
+    classDef value fill:#afa, stroke:#000
+    classDef proc fill:#ccf, stroke:#000
+    class v1,v2,v3,v4 value
+    class p proc
+```
+
+Поскольку симулятор - это тоже процедура, то можно вкладывать схемы расчёта
+друг в друга:
+
+```python
+hamiltonian_calculator = Simulator([
+    (MaterialBuilder(),
+        {"x": float, "temperature": float},
+        {"material": Material}),
+    (BulkHamiltonianCalculator(),
+        {"material": Material},
+        {"hamiltonian": "bulk_hamiltonian"}),
+    ("bulk_hamiltonian", BulkHamiltonian),
+    (SphericalHamiltonianCalculator(),
+        {
+            "bulk_hamiltonian": "bulk_hamiltonian",
+            "angular_params": AngularParams,
+        },
+        {"spherical_hamiltonian": "spherical_hamiltonian"}),
+    ("spherical_hamiltonian", SphericalBulkHamiltonian),
+    (ImpurityHamiltonianCalculator(),
+        {
+            "bulk_hamiltonian": "spherical_hamiltonian",
+            "impurity_params": ImpurityParams,
+        },
+        {"impurity_hamiltonian": "hamiltonian"}),
+    ("hamiltonian", ImpuritySphericalHamiltonian)
+])
+
+simulator = Simulator([
+    (hamiltonian_calculator,
+        {
+            "x": float,
+            "temperature": float,
+            "angular_params": AngularParams,
+            "impurity_params": ImpurityParams,
+        },
+        {
+            "hamiltonian": Hamiltonian,
+        }),
+    (SchrodingerEquationSolver(),
+        {
+            "hamiltonian": Hamiltonian,
+            "energy": float,
+            "radial_mesh": MeshParams,
+        },
+        {
+            "localization_rate": float,
+        }),
+])
+```
+Для некоторых процедур у входов и выходов указывается не имя, а тип,
+тогда узел-значение создаётся автоматически.
+
+Используется симулятор примерно так:
+```python
+...
+# constant parameters
+simulator.put("temperature", temperature_kelvin)
+simulator.put("angular_params", angular_params)
+simulator.put("impurity_params", impurity_params)
+simulator.put("radial_mesh", radial_mesh)
+
+storage = SpectraStorage("file_name.hdf5")
+for x in x_mesh:
+    simulator.put("x", x)
+    spectrum = Spectrum()
+    for energy in energy_mesh:
+        simulator.put("energy", energy)
+        spectrum.put(energy, simulator.get("localization_rate"))
+    storage.put(x, spectrum)
+```
+
+
+## Выводы
+Лет 10 хотел сделать такую схему, и даже пытался, но всегда запутывался.
+
+Основные ошибки были следующие:
+- отсутствие разделения команд и запросов,
+  из-за чего создавались сложные методы, в которых я запутывался;
+- отсутствие ограничения на изменения входных данных методов,
+  из-за чего, например, методы связывания узлов "лазили" в соседние узлы
+  и меняли их состояние, что опять всё запутывало;
+  теперь связывание выполняется двумя командами:
+  ```python
+  value.add_output(procedure)
+  procedure.add_input("source", value)
+  ```
+- желание собрать логику работы схемы расчёта в одно месте,
+  вместо разделения на подзадачи и "раздачи" подзадач разным АТД,
+  из-за чего для схемы расчёта нужен был специальный "умный" контейнер со сложными алгоритмами;
+- незнание принципов декларативной вычислительной модели и попытки реализовать
+  циклы через dataflow - это был очень нетривиальный алгоритм с поиском
+  сильно связанных компонент в графе, там тоже было где запутаться;
+- отсутствие "волшебной таблетки мотивации" hard work.
+
+Благодаря курсам по вычислительным моделям и ООП, наконец удалось реализовать
+эту логику через АТД.
+
+С непривычки потребовалось несколько раз переделывать логику и переписывать код.
+
+Теперь можно постепенно "разгрызать" мои старые расчётные программы,
+выделяя АТД для узлов-значений и упаковывая расчёты в процедуры.
+Процедуры можно разбивать на более мелкие с возможностью повторного использования.
+
+Самое вкусное: поскольку теперь нет "умных" контейнеров и логика реализована,
+фактически, через обмен сообщениями, можно превратить некоторые узлы-значения
+в узлы-очереди-сообщений.
+Часть схемы будет в одном потоке, а часть - в другом.
+
+Можно масштабировать расчёты даже для суперкомпьютера.
+Самое главное, для этого не нужно менять схему расчёта, просто нужен
+класс-потомок для класса `Simulator` и несколько настроек к нему.
