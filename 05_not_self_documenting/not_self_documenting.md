@@ -25,6 +25,8 @@
 # Can have only one (optional) input procedure.
 # So there is only one component responsible for value update.
 #
+# Note that value must be validated before 'get' query is used.
+#
 # Contains:
 #     - input procedure node (optional)
 #     - output procedure nodes (any number)
