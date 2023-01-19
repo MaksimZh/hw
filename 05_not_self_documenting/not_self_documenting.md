@@ -103,17 +103,6 @@ class Procedure(ABC):
 # Entries in input and output dictionaries are of the following two kinds:
 #     "name_in_procedure": "value_node_name" - link to value node by name
 #     "name_in_procedure_and_outside": Type - create value node and link to it
-# Special kind of procedure that contains calculation scheme built using
-# its declarative description sent to constructor.
-#
-# The description is list of value and procedure patterns.
-# Value pattern is the following tuple:
-#     ("name", ValueType).
-# Procedure pattern is the following tuple:
-#     (ProcedureType, <input_dictionary>, <output_dictionary>).
-# Entries in input and output dictionaries are of the following two kinds:
-#     "name_in_procedure": "value_node_name" - link to value node by name
-#     "name_in_procedure_and_outside": Type - create value node and link to it
 # If the second kind of I/O entry is used in multiple places with the same name
 # then their types must match. 
 #
