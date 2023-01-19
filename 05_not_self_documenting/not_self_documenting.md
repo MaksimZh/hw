@@ -103,7 +103,7 @@ class Procedure(ABC):
 # Entries in input and output dictionaries are of the following two kinds:
 #     "name_in_procedure": "value_node_name" - link to value node by name
 #     "name_in_procedure_and_outside": Type - create value node and link to it
-# If the second kind of I/O entry is used in multiple places with the same name
+# If multiple I/O entries of the 2nd kind have the same name
 # then their types must match. 
 #
 class Simulator(Procedure):
