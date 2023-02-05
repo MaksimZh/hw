@@ -113,7 +113,7 @@ class ProcedureNode:
 Команды `validate` и `invalidate` вызывают аналогичные команды у соседних узлов
 и далее, возможно, на всю глубину графа.
 
-О недостатков такого решения написано выше.
+О недостатках такого решения написано выше.
 Интересно, что это другое следствие той же самой ошибки на уровне логики.
 Вывел для себя правило:
 > Если логика решения плохо поддаётся математической формализации,
@@ -150,12 +150,93 @@ class Simulator(Procedure):
 есть ли у процедуры такой слот, подходит ли его тип и т.д.
 
 Решение - вынести слоты в отдельные узлы, которые создаются на основе
-информации о процедуре, тогда у нас просто будут узлы с правильными именами
-и типами.
-Тогда эти методы вообще не нужны, ибо каждый из них можно заменить небольшим блоком:
+информации о процедуре,
+Они автоматически будут иметь правильные имена и типы.
+Тогда параметр `slot_name` больше не нужен.
+Также не нужны узлы-значения, потому что слоты связываются напрямую:
 ```Python
-if not _type_fits(output_node.get_type(), input_node.get_type()):
+class Simulator(Procedure):
+    
     ...
-output_node.add_output(input_node)
-input_node.add_input(output_node)
+
+    def __link_slots(self,
+            output: OutputNode,
+            input: InputNode
+            ) -> None:
+        ...
+
+```
+
+
+# 1.4. Странные решения
+```Python
+class BulkHamiltonian:
+    ...
+    __data: NDArray[Shape["*, *, 4, 4"], Complex]
+    ...
+
+    def __init__(self, size: int, valence_size: int) -> None:
+        ...
+
+    @property
+    def tensor(self) -> NDArray[Shape["*, *, 4, 4"], Complex]:
+        return self.__data
+
+    def __getitem__(self, indices: tuple[int, int]) -> NDArray[Shape["4, 4"], Complex]:
+        ...
+    
+    def __setitem__(self, indices: tuple[int, int],
+            value: list[list[complex]] | NDArray[Shape["4, 4"], Complex]) -> None:
+        ...
+```
+Есть прямой доступ к данным, и есть методы чтения и записи по элементам.
+
+По идее, после создания гамильтониан вообще не должен меняться,
+и использовать его удобнее целиком как тензор,
+чтобы была доступна вся мощь `NumPy`.
+При этом нигде кроме тестов `__getitem__` не используется,
+а все проверки, которые делает `__setitem__` можно перенести в конструктор.
+```Python
+class BulkHamiltonian:
+    Tensor = NDArray[Shape["*, *, 4, 4"], Complex]
+    
+    ...
+    __data: Tensor
+    ...
+
+    def __init__(self, tensor: Tensor, valence_size: int) -> None:
+        ...
+
+    def get_tensor(self) -> Tensor:
+        return self.__data
+```
+
+
+# 1.5. Чрезмерный результат
+```Python
+class Procedure(Status):
+    def get_input_slots(self) -> dict[str, type]:
+        ...
+
+...
+
+if not _type_fits(input.get_type(), self.__proc.get_input_slots()[slot]):
+    ...
+```
+Когда нам нужен только тип только одного слота, мы получаем их все.
+
+Решение - добавить метод, для получения типа одного слота:
+
+```Python
+class Procedure(Status):
+    def get_input_slots(self) -> dict[str, type]:
+        ...
+
+    def get_input_type(self, slot: str) -> type:
+        ...
+
+...
+
+if not _type_fits(input.get_type(), self.__proc.get_input_type(slot)):
+    ...
 ```
